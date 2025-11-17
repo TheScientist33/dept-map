@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Carte interactive des départements français</title>
+
+  <!-- Leaflet CSS -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+
+  <!-- Un peu de style -->
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    #app {
+      display: flex;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    #sidebar {
+      width: 280px;
+      padding: 16px;
+      box-sizing: border-box;
+      border-right: 1px solid #ddd;
+      background: #f8f9fa;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    #map {
+      flex: 1;
+    }
+
+    h1 {
+      font-size: 18px;
+      margin: 0 0 8px 0;
+    }
+
+    .info-box {
+      font-size: 14px;
+      background: #fff;
+      border-radius: 8px;
+      padding: 10px;
+      border: 1px solid #ddd;
+      min-height: 80px;
+    }
+
+    .info-label {
+      font-size: 12px;
+      text-transform: uppercase;
+      color: #666;
+      margin-bottom: 4px;
+    }
+
+    .info-main {
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .info-sub {
+      font-size: 13px;
+      color: #555;
+      margin-top: 4px;
+    }
+
+    .input-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    #deptInput {
+      flex: 1;
+      padding: 6px 8px;
+      font-size: 14px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+    }
+
+    button {
+      padding: 6px 10px;
+      font-size: 13px;
+      border-radius: 6px;
+      border: 1px solid #222;
+      background: #222;
+      color: #fff;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #000;
+    }
+
+    .hint {
+      font-size: 11px;
+      color: #777;
+    }
+
+    @media (max-width: 768px) {
+      #app {
+        flex-direction: column;
+      }
+      #sidebar {
+        width: 100%;
+        border-right: none;
+        border-bottom: 1px solid #ddd;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<div id="app">
+  <div id="sidebar">
+    <h1>Carte des départements</h1>
+    <div class="info-box" id="deptInfo">
+      <div class="info-label">Département sélectionné</div>
+      <div class="info-main">Aucun</div>
+      <div class="info-sub">
+        Clique ou touche un département sur la carte.<br>
+        La distance affichée est une approximation centre du département → Marseille.
+      </div>
+    </div>
+
+    <div>
+      <div class="info-label">Surligner par code</div>
+      <div class="input-row">
+        <input
+          id="deptInput"
+          type="text"
+          placeholder="Ex : 13, 26, 69"
+        />
+        <button id="btnHighlight">OK</button>
+      </div>
+      <div class="hint">
+        Saisis un ou plusieurs codes (séparés par des virgules) pour les mettre en surbrillance.
+      </div>
+    </div>
+
+    <div class="hint">
+      • Survol / clic = surbrillance<br>
+      • Clic = zoom + popup (nom, code, distance)<br>
+      • Compatible souris ou tactile.
+    </div>
+  </div>
+
+  <div id="map"></div>
+</div>
+
+<!-- Leaflet JS -->
+<script
+  src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+  crossorigin=""
+></script>
+
+<script>
+  // Coordonnées approximatives de Marseille
+  const MARSEILLE = { lat: 43.2965, lng: 5.3698 };
+
+  // Styles de base
+  const defaultStyle = {
+    color: "#555",
+    weight: 1,
+    fillColor: "#e0e0e0",
+    fillOpacity: 0.7
+  };
+
+  const highlightStyle = {
+    color: "#000",
+    weight: 2,
+    fillColor: "#ffcc00",
+    fillOpacity: 0.9
+  };
+
+  // Création de la carte
+  const map = L.map("map", {
+    zoomSnap: 0.5,
+    zoomControl: true
+  }).setView([46.7, 2.5], 5.8); // centre de la France
+
+  // Fond de carte OpenStreetMap
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap contributors"
+  }).addTo(map);
+
+  let geojsonLayer = null;
+
+  // Haversine pour distance en km
+  function distanceKm(lat1, lon1, lat2, lon2) {
+    const R = 6371; // rayon de la Terre en km
+    const toRad = d => d * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+
+  // Centroid très simple (moyenne des points de tous les polygones)
+  function getCentroid(feature) {
+    const geom = feature.geometry;
+    let coords = [];
+
+    if (geom.type === "Polygon") {
+      coords = geom.coordinates[0]; // anneau extérieur
+    } else if (geom.type === "MultiPolygon") {
+      geom.coordinates.forEach(poly => {
+        coords = coords.concat(poly[0]); // on prend l’anneau extérieur de chaque polygone
+      });
+    }
+
+    let sumLat = 0;
+    let sumLng = 0;
+
+    coords.forEach(c => {
+      const lng = c[0];
+      const lat = c[1];
+      sumLat += lat;
+      sumLng += lng;
+    });
+
+    const n = coords.length || 1;
+    return {
+      lat: sumLat / n,
+      lng: sumLng / n
+    };
+  }
+
+  // Mise à jour de la petite box à gauche
+  function updateSidebarInfo(name, code, distKmApprox) {
+    const box = document.getElementById("deptInfo");
+    const main = box.querySelector(".info-main");
+    const sub = box.querySelector(".info-sub");
+
+    if (!name) {
+      main.textContent = "Aucun";
+      sub.innerHTML = "Clique ou touche un département sur la carte.";
+      return;
+    }
+
+    main.textContent = `${name} (${code})`;
+    sub.innerHTML =
+      `Distance approximative du centre du département à Marseille : ` +
+      `<b>${distKmApprox.toFixed(0)} km</b>.`;
+  }
+
+  function onEachFeature(feature, layer) {
+    const props = feature.properties || {};
+    const code = props.code;
+    const name = props.nom;
+
+    const centroid = getCentroid(feature);
+    const dist = distanceKm(
+      MARSEILLE.lat,
+      MARSEILLE.lng,
+      centroid.lat,
+      centroid.lng
+    );
+
+    // On stocke quelques infos sur le layer
+    layer._deptCode = code;
+    layer._deptName = name;
+    layer._deptDistance = dist;
+
+    const popupHtml =
+      `<b>${name}</b> (${code})<br>` +
+      `Centre → Marseille ≈ ${dist.toFixed(0)} km`;
+
+    layer.bindPopup(popupHtml);
+
+    layer.on({
+      mouseover: e => {
+        const l = e.target;
+        l.setStyle(highlightStyle);
+        l.bringToFront();
+        updateSidebarInfo(name, code, dist);
+      },
+      mouseout: e => {
+        geojsonLayer.resetStyle(e.target);
+      },
+      click: e => {
+        const l = e.target;
+        l.setStyle(highlightStyle);
+        l.bringToFront();
+        updateSidebarInfo(name, code, dist);
+        map.fitBounds(l.getBounds(), { maxZoom: 9 });
+        l.openPopup();
+      }
+    });
+  }
+
+  // Chargement du GeoJSON des départements (France métropolitaine + DOM)
+  // Source : projet open-source france-geojson (IGN + INSEE)
+  const geojsonUrl =
+    "https://raw.githubusercontent.com/gregoiredavid/france-geojson/master/departements-version-simplifiee.geojson";
+
+  fetch(geojsonUrl)
+    .then(res => res.json())
+    .then(data => {
+      geojsonLayer = L.geoJSON(data, {
+        style: () => defaultStyle,
+        onEachFeature: onEachFeature
+      }).addTo(map);
+    })
+    .catch(err => {
+      console.error("Erreur lors du chargement du GeoJSON :", err);
+      alert("Impossible de charger la carte des départements.");
+    });
+
+  // Surlignage par saisie de codes (ex : '26, 07, 69')
+  function highlightFromInput() {
+    const input = document.getElementById("deptInput").value;
+    if (!geojsonLayer || !input) return;
+
+    const codes = input
+      .split(",")
+      .map(c => c.trim())
+      .filter(c => c.length > 0);
+
+    // On remet tous les styles à la normale
+    geojsonLayer.eachLayer(layer => {
+      geojsonLayer.resetStyle(layer);
+    });
+
+    // On surligne les codes demandés
+    geojsonLayer.eachLayer(layer => {
+      if (codes.includes(layer._deptCode)) {
+        layer.setStyle(highlightStyle);
+        layer.bringToFront();
+      }
+    });
+  }
+
+  document
+    .getElementById("btnHighlight")
+    .addEventListener("click", highlightFromInput);
+
+  document
+    .getElementById("deptInput")
+    .addEventListener("keydown", e => {
+      if (e.key === "Enter") {
+        highlightFromInput();
+      }
+    });
+</script>
+
+</body>
+</html>
