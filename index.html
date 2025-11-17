@@ -12,7 +12,6 @@
     crossorigin=""
   />
 
-  <!-- Un peu de style -->
   <style>
     html, body {
       margin: 0;
@@ -150,7 +149,7 @@
 
     <div class="hint">
       • Survol / clic = surbrillance<br>
-      • Clic = zoom + popup (nom, code, distance)<br>
+      • Clic = zoom + popup (nom, code, chef-lieu, distance)<br>
       • Compatible souris ou tactile.
     </div>
   </div>
@@ -168,6 +167,112 @@
 <script>
   // Coordonnées approximatives de Marseille
   const MARSEILLE = { lat: 43.2965, lng: 5.3698 };
+
+  // Table des chefs-lieux (préfectures) par code de département
+  // Métropole + DOM (971, 972, 973, 974, 976)
+  const deptPrefectures = {
+    "01": "Bourg-en-Bresse",
+    "02": "Laon",
+    "03": "Moulins",
+    "04": "Digne-les-Bains",
+    "05": "Gap",
+    "06": "Nice",
+    "07": "Privas",
+    "08": "Charleville-Mézières",
+    "09": "Foix",
+    "10": "Troyes",
+    "11": "Carcassonne",
+    "12": "Rodez",
+    "13": "Marseille",
+    "14": "Caen",
+    "15": "Aurillac",
+    "16": "Angoulême",
+    "17": "La Rochelle",
+    "18": "Bourges",
+    "19": "Tulle",
+    "21": "Dijon",
+    "22": "Saint-Brieuc",
+    "23": "Guéret",
+    "24": "Périgueux",
+    "25": "Besançon",
+    "26": "Valence",
+    "27": "Évreux",
+    "28": "Chartres",
+    "29": "Quimper",
+    "2A": "Ajaccio",
+    "2B": "Bastia",
+    "30": "Nîmes",
+    "31": "Toulouse",
+    "32": "Auch",
+    "33": "Bordeaux",
+    "34": "Montpellier",
+    "35": "Rennes",
+    "36": "Châteauroux",
+    "37": "Tours",
+    "38": "Grenoble",
+    "39": "Lons-le-Saunier",
+    "40": "Mont-de-Marsan",
+    "41": "Blois",
+    "42": "Saint-Étienne",
+    "43": "Le Puy-en-Velay",
+    "44": "Nantes",
+    "45": "Orléans",
+    "46": "Cahors",
+    "47": "Agen",
+    "48": "Mende",
+    "49": "Angers",
+    "50": "Saint-Lô",
+    "51": "Châlons-en-Champagne",
+    "52": "Chaumont",
+    "53": "Laval",
+    "54": "Nancy",
+    "55": "Bar-le-Duc",
+    "56": "Vannes",
+    "57": "Metz",
+    "58": "Nevers",
+    "59": "Lille",
+    "60": "Beauvais",
+    "61": "Alençon",
+    "62": "Arras",
+    "63": "Clermont-Ferrand",
+    "64": "Pau",
+    "65": "Tarbes",
+    "66": "Perpignan",
+    "67": "Strasbourg",
+    "68": "Colmar",
+    "69": "Lyon",
+    "70": "Vesoul",
+    "71": "Mâcon",
+    "72": "Le Mans",
+    "73": "Chambéry",
+    "74": "Annecy",
+    "75": "Paris",
+    "76": "Rouen",
+    "77": "Melun",
+    "78": "Versailles",
+    "79": "Niort",
+    "80": "Amiens",
+    "81": "Albi",
+    "82": "Montauban",
+    "83": "Toulon",
+    "84": "Avignon",
+    "85": "La Roche-sur-Yon",
+    "86": "Poitiers",
+    "87": "Limoges",
+    "88": "Épinal",
+    "89": "Auxerre",
+    "90": "Belfort",
+    "91": "Évry-Courcouronnes",
+    "92": "Nanterre",
+    "93": "Bobigny",
+    "94": "Créteil",
+    "95": "Pontoise",
+    "971": "Basse-Terre",
+    "972": "Fort-de-France",
+    "973": "Cayenne",
+    "974": "Saint-Denis",
+    "976": "Mamoudzou"
+  };
 
   // Styles de base
   const defaultStyle = {
@@ -200,7 +305,7 @@
 
   // Haversine pour distance en km
   function distanceKm(lat1, lon1, lat2, lon2) {
-    const R = 6371; // rayon de la Terre en km
+    const R = 6371;
     const toRad = d => d * Math.PI / 180;
     const dLat = toRad(lat2 - lat1);
     const dLon = toRad(lon2 - lon1);
@@ -212,16 +317,16 @@
     return R * c;
   }
 
-  // Centroid très simple (moyenne des points de tous les polygones)
+  // Centroid approximatif (moyenne des points)
   function getCentroid(feature) {
     const geom = feature.geometry;
     let coords = [];
 
     if (geom.type === "Polygon") {
-      coords = geom.coordinates[0]; // anneau extérieur
+      coords = geom.coordinates[0];
     } else if (geom.type === "MultiPolygon") {
       geom.coordinates.forEach(poly => {
-        coords = coords.concat(poly[0]); // on prend l’anneau extérieur de chaque polygone
+        coords = coords.concat(poly[0]);
       });
     }
 
@@ -242,8 +347,8 @@
     };
   }
 
-  // Mise à jour de la petite box à gauche
-  function updateSidebarInfo(name, code, distKmApprox) {
+  // Mise à jour de la box de gauche
+  function updateSidebarInfo(name, code, distKmApprox, prefecture) {
     const box = document.getElementById("deptInfo");
     const main = box.querySelector(".info-main");
     const sub = box.querySelector(".info-sub");
@@ -256,6 +361,7 @@
 
     main.textContent = `${name} (${code})`;
     sub.innerHTML =
+      `Chef-lieu : <b>${prefecture}</b><br>` +
       `Distance approximative du centre du département à Marseille : ` +
       `<b>${distKmApprox.toFixed(0)} km</b>.`;
   }
@@ -273,13 +379,17 @@
       centroid.lng
     );
 
-    // On stocke quelques infos sur le layer
+    const prefecture = deptPrefectures[code] || "Chef-lieu non renseigné";
+
+    // Stockage interne
     layer._deptCode = code;
     layer._deptName = name;
     layer._deptDistance = dist;
+    layer._deptPrefecture = prefecture;
 
     const popupHtml =
       `<b>${name}</b> (${code})<br>` +
+      `Chef-lieu : <b>${prefecture}</b><br>` +
       `Centre → Marseille ≈ ${dist.toFixed(0)} km`;
 
     layer.bindPopup(popupHtml);
@@ -289,7 +399,7 @@
         const l = e.target;
         l.setStyle(highlightStyle);
         l.bringToFront();
-        updateSidebarInfo(name, code, dist);
+        updateSidebarInfo(name, code, dist, prefecture);
       },
       mouseout: e => {
         geojsonLayer.resetStyle(e.target);
@@ -298,15 +408,14 @@
         const l = e.target;
         l.setStyle(highlightStyle);
         l.bringToFront();
-        updateSidebarInfo(name, code, dist);
+        updateSidebarInfo(name, code, dist, prefecture);
         map.fitBounds(l.getBounds(), { maxZoom: 9 });
         l.openPopup();
       }
     });
   }
 
-  // Chargement du GeoJSON des départements (France métropolitaine + DOM)
-  // Source : projet open-source france-geojson (IGN + INSEE)
+  // GeoJSON des départements (projet open-source France GeoJSON)
   const geojsonUrl =
     "https://raw.githubusercontent.com/gregoiredavid/france-geojson/master/departements-version-simplifiee.geojson";
 
@@ -323,7 +432,7 @@
       alert("Impossible de charger la carte des départements.");
     });
 
-  // Surlignage par saisie de codes (ex : '26, 07, 69')
+  // Surlignage par saisie de codes
   function highlightFromInput() {
     const input = document.getElementById("deptInput").value;
     if (!geojsonLayer || !input) return;
@@ -333,12 +442,10 @@
       .map(c => c.trim())
       .filter(c => c.length > 0);
 
-    // On remet tous les styles à la normale
     geojsonLayer.eachLayer(layer => {
       geojsonLayer.resetStyle(layer);
     });
 
-    // On surligne les codes demandés
     geojsonLayer.eachLayer(layer => {
       if (codes.includes(layer._deptCode)) {
         layer.setStyle(highlightStyle);
