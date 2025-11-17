@@ -128,7 +128,8 @@
       <div class="info-main">Aucun</div>
       <div class="info-sub">
         Clique ou touche un département sur la carte.<br>
-        La distance affichée est une approximation centre du département → Marseille.
+        Distance et temps voiture estimés depuis :<br>
+        <b>4 bd Gaston Crémieux, 13008 Marseille</b>.
       </div>
     </div>
 
@@ -149,7 +150,7 @@
 
     <div class="hint">
       • Survol / clic = surbrillance<br>
-      • Clic = zoom + popup (nom, code, chef-lieu, distance)<br>
+      • Clic = zoom + popup (nom, code, chef-lieu, distance, temps estimé)<br>
       • Compatible souris ou tactile.
     </div>
   </div>
@@ -165,8 +166,9 @@
 ></script>
 
 <script>
-  // Coordonnées approximatives de Marseille
-  const MARSEILLE = { lat: 43.2965, lng: 5.3698 };
+  // Coordonnées approximatives de ton adresse :
+  // 4 boulevard Gaston Crémieux, 13008 Marseille
+  const HOME = { lat: 43.274374, lng: 5.390662 };
 
   // Table des chefs-lieux (préfectures) par code de département
   // Métropole + DOM (971, 972, 973, 974, 976)
@@ -317,6 +319,23 @@
     return R * c;
   }
 
+  // Estimation du temps de trajet en voiture (distance / 80 km/h)
+  function estimatedDriveTimeFromDistanceKm(distKm) {
+    const avgSpeed = 80; // km/h
+    const hoursFloat = distKm / avgSpeed;
+    let h = Math.floor(hoursFloat);
+    let m = Math.round((hoursFloat - h) * 60);
+
+    if (m === 60) {
+      h += 1;
+      m = 0;
+    }
+
+    const hStr = h.toString();
+    const mStr = m.toString().padStart(2, "0");
+    return `${hStr} h ${mStr} min`;
+  }
+
   // Centroid approximatif (moyenne des points)
   function getCentroid(feature) {
     const geom = feature.geometry;
@@ -348,7 +367,7 @@
   }
 
   // Mise à jour de la box de gauche
-  function updateSidebarInfo(name, code, distKmApprox, prefecture) {
+  function updateSidebarInfo(name, code, distKmApprox, prefecture, driveTimeStr) {
     const box = document.getElementById("deptInfo");
     const main = box.querySelector(".info-main");
     const sub = box.querySelector(".info-sub");
@@ -362,8 +381,10 @@
     main.textContent = `${name} (${code})`;
     sub.innerHTML =
       `Chef-lieu : <b>${prefecture}</b><br>` +
-      `Distance approximative du centre du département à Marseille : ` +
-      `<b>${distKmApprox.toFixed(0)} km</b>.`;
+      `Distance approximative (depuis 4 bd Gaston Crémieux, Marseille) : ` +
+      `<b>${distKmApprox.toFixed(0)} km</b><br>` +
+      `Temps de trajet voiture estimé (≈ 80 km/h, hors trafic) : ` +
+      `<b>${driveTimeStr}</b>.`;
   }
 
   function onEachFeature(feature, layer) {
@@ -372,13 +393,16 @@
     const name = props.nom;
 
     const centroid = getCentroid(feature);
+
+    // Distance entre ton adresse et le centre du département
     const dist = distanceKm(
-      MARSEILLE.lat,
-      MARSEILLE.lng,
+      HOME.lat,
+      HOME.lng,
       centroid.lat,
       centroid.lng
     );
 
+    const driveTime = estimatedDriveTimeFromDistanceKm(dist);
     const prefecture = deptPrefectures[code] || "Chef-lieu non renseigné";
 
     // Stockage interne
@@ -386,11 +410,14 @@
     layer._deptName = name;
     layer._deptDistance = dist;
     layer._deptPrefecture = prefecture;
+    layer._deptDriveTime = driveTime;
 
     const popupHtml =
       `<b>${name}</b> (${code})<br>` +
       `Chef-lieu : <b>${prefecture}</b><br>` +
-      `Centre → Marseille ≈ ${dist.toFixed(0)} km`;
+      `Depuis 4 bd Gaston Crémieux (13008 Marseille) → centre du département ≈ ` +
+      `${dist.toFixed(0)} km<br>` +
+      `Temps voiture estimé (≈ 80 km/h, hors trafic) : <b>${driveTime}</b>`;
 
     layer.bindPopup(popupHtml);
 
@@ -399,7 +426,7 @@
         const l = e.target;
         l.setStyle(highlightStyle);
         l.bringToFront();
-        updateSidebarInfo(name, code, dist, prefecture);
+        updateSidebarInfo(name, code, dist, prefecture, driveTime);
       },
       mouseout: e => {
         geojsonLayer.resetStyle(e.target);
@@ -408,7 +435,7 @@
         const l = e.target;
         l.setStyle(highlightStyle);
         l.bringToFront();
-        updateSidebarInfo(name, code, dist, prefecture);
+        updateSidebarInfo(name, code, dist, prefecture, driveTime);
         map.fitBounds(l.getBounds(), { maxZoom: 9 });
         l.openPopup();
       }
